@@ -1,0 +1,82 @@
+#!/usr/bin/env ruby
+require File.expand_path(File.dirname(__FILE__) + '/../lib/zencoder_fetcher.rb')
+require 'trollop'
+
+#
+# Configure options
+#
+
+opts = Trollop::options do
+  version "Zencoder Fetcher #{ZencoderFetcher.version} (c) Zencoder Inc. All rights reserved, etc."
+  banner <<-EOS
+Zencoder Fetcher helps developers create applications using Zencoder.
+
+Usage:
+        zencoder_fetcher [options] <api_key>
+
+where [options] are:
+EOS
+  opt :url, "URL to post the Zencoder notification", :short => 'u', :type => String, :default => "http://localhost:3000"
+  opt :loop, "Run the notifier in a loop.", :short => 'l', :default => false
+  opt :interval, "Check every x seconds.", :short => 'n', :type => Integer, :default => 60
+  opt :count, "Number of notifications to retrieve per page.", :short => 'c', :type => Integer, :default => 50
+  opt :page, "The page to load.", :short => 'p', :type => Integer, :default => 1
+  opt :since, "Load notifications starting since _n_ minutes ago.", :short => 'm', :type => Integer, :default => nil
+  opt :endpoint, "Zencoder endpoint to use. Defaults to https://app.zencoder.com/.", :short => 'e', :type => String
+  opt :api_version, "API version to use.", :short => 'v', :type => String, :default => 'v2'
+end
+
+
+#
+# Validate input
+#
+
+if ARGV[0].nil?
+  puts <<-EOS
+Error: no API Key specified
+
+Usage:
+
+      zencoder_fetcher [options] <api_key>
+
+EOS
+  exit 1
+end
+
+
+#
+# Run Zencoder Notifier
+#
+
+options               = {}
+options[:api_key]     = ARGV[0]
+options[:url]         = opts[:url]
+options[:count]       = opts[:count]
+options[:page]        = opts[:page]
+options[:since]       = (opts[:since] && (Time.now.utc - (opts[:since].to_i * 60))) || nil
+options[:endpoint]    = opts[:endpoint]
+options[:api_version] = opts[:api_version]
+
+begin
+  if opts[:loop]
+    @since = options[:since]
+    loop do
+      puts "Checking Zencoder for Notifications" << (@since ? " since #{@since.utc.strftime('%b %e, %Y @ %H:%M:%S %Z')}" : "")
+      options.merge!(:since => @since)
+      @since = ZencoderFetcher.request(options)
+      sleep [10, opts[:interval]].max
+    end
+  else
+    ZencoderFetcher.request(options)
+  end
+rescue SystemExit, Interrupt
+  puts "Quitting..."
+  exit 0
+rescue FetcherError
+  exit 1
+rescue Exception => e
+  puts e.class
+  puts e.message
+  puts e.backtrace
+  exit 1
+end

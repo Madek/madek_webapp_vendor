@@ -1,0 +1,89 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+require 'ostruct'
+require 'yaml'
+require 'flog_cli'
+require 'flog'
+
+# require 'pry'
+
+###############################################################################
+#
+# Static complexity code analysis based on flog.
+#
+# Author: Thomas Schank <DrTom@schank.ch>
+#
+###############################################################################
+
+###############################################################################
+# Options, main ....
+###############################################################################
+
+def parse_options(options)
+  OptionParser.new do |opts|
+    opts.banner = 'Usage: cider-ci_flog FILE/DIR ...'
+
+    opts.on('-l', '--limit N', Integer) do |l|
+      options.limit = l
+    end
+
+    opts.on('-d', '--print-details') do
+      options.print_details = true
+    end
+
+    opts.on('-m', '--methods-only') do
+      options.methods_only = true
+    end
+
+    opts.on('-e', '--exclude-match E', Regexp) do |e|
+      options.exclude_match << e
+    end
+  end.parse!
+
+  options
+end
+
+def main
+  options = OpenStruct.new
+  options.limit = 30
+  options.print_details = false
+  options.exclude_match = []
+
+  parse_options options
+
+  files = FlogCLI.expand_dirs_to_files ARGV
+
+  options.exclude_match.each do |regex|
+    files.reject! { |f| f.match regex }
+  end
+
+  abort 'No files are selected' if files.empty?
+
+  flog_options = FlogCLI.parse_options []
+  flog_options[:methods] = true if options.methods_only
+  flogger = Flog.new flog_options
+  flogger.flog(*files)
+
+  offending = flogger.totals \
+              .select { |_k, v| v > options.limit } \
+              .sort_by { |_k, v| -v }
+
+  if offending.empty?
+    $stdout.puts 'cider-ci_flog OK'
+    exit
+  else
+    $stderr.puts 'cider-ci_flog FAILED:'
+    offending.each do |offender|
+      $stderr.puts '' if options.print_details
+
+      $stderr.puts "#{offender[1].round} #{offender[0]}"
+      if options.print_details
+        $stderr.puts flogger.calls[offender[0]].to_yaml
+      end
+    end
+    abort
+  end
+end
+
+main
